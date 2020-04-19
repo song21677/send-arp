@@ -122,12 +122,13 @@ int main(int argc, char* argv[]) {
             if (ntohs(ethernet->etype) != ARP) continue;
 
             const struct ARPheader* arp = (struct ARPheader*)(rppacket + sizeof(Etherheader));
-
-            for (int i=0; i<6; i++) {
-                rqpacket.ether.dmac[i] = arp->smac[i];
-                rqpacket.arp.tmac[i] = arp->smac[i];
+            if (ntohs(arp->opcode) ==0x0002 && arp->sip == rqpacket.arp.tip && arp->tip == rqpacket.arp.sip) {
+                for (int i=0; i<6; i++) {
+                    rqpacket.ether.dmac[i] = arp->smac[i];
+                    rqpacket.arp.tmac[i] = arp->smac[i];
+                }
+                inet_pton(AF_INET, argv[3], &rqpacket.arp.sip);
             }
-            inet_pton(AF_INET, argv[3], &rqpacket.arp.sip);
 
             sendpacket(handle, rqpacket);
             break;

@@ -82,11 +82,8 @@ int main(int argc, char* argv[]) {
 
     EtherArpPacket rqpacket;
 
-    char const* s1 = "0xff 0xff 0xff 0xff 0xff 0xff";
-    char* end;
-    rqpacket.ether.dmac[0] = strtol(s1, &end, 16);
-    for (int i=1; i<6;i++) {
-        rqpacket.ether.dmac[i] = strtol(end, &end, 16);
+    for (int i=0; i<6; i++) {
+        rqpacket.ether.dmac[i] = 0xff;
     }
     get_mac(rqpacket.ether.smac);
     rqpacket.ether.etype = htons(ARP);
@@ -98,11 +95,8 @@ int main(int argc, char* argv[]) {
     rqpacket.arp.opcode = htons(Request);
     get_mac(rqpacket.arp.smac);
     inet_pton(AF_INET, get_ip(), &rqpacket.arp.sip);
-    char const* s2 = "0x00 0x00 0x00 0x00 0x00 0x00";
-    char* end2;
-    rqpacket.arp.tmac[0] = strtol(s2, &end2, 16);
-    for (int i=1; i<6; i++) {
-        rqpacket.arp.tmac[i] = strtol(end2, &end2, 16);
+    for (int i=0; i<6; i++) {
+        rqpacket.arp.tmac[i] = 0x00;
     }
     inet_pton(AF_INET, argv[2], &rqpacket.arp.tip);
 

